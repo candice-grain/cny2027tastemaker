@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>
+/* Grain Tastemakers — pretty URL. The bundle host serves exact paths only, so /cny-2027
+   arrives via index.html and is redirected here. Put the clean path back in the bar. */
+(function(){try{
+  var p=location.pathname;
+  if(/\.html$/.test(p)) history.replaceState({}, "", p.replace(/\.html$/,"")+location.search+location.hash);
+}catch(e){}})();
+</script>
+
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CNY 2027 Tasting</title>
@@ -274,32 +283,50 @@ const ROUNDS = [
     subtitle:"Rice, noodles & vegetables",
     dishes:[
       "Couscous Barley Taro Rice",
-      "Udon Stirfry",
-      "Egg Tofu Vegetable"
+      "Stir-fried Thick Noodle",
+      "Claypot Braised Egg Tofu"
     ]
   },
   {
     title:"Round 2",
     subtitle:"Seafood & poultry",
     dishes:[
-      "Ginger Scallion Oyster Sauce Chicken",
-      "Osmanthus Fish",
-      "Canton Braised Abalone & Fish Maw",
-      "Cabbage Roll",
-      "Thai Crab Curry",
-      "Apple Wood Smoked Irish Duck"
+      "Signature Oyster Braised Chicken",
+      "Osmanthus Ginger Scallion Fish",
+      "Four King Red Braised Seafood",
+      "Hot & Sour Cabbage Roll"
     ]
   },
   {
     title:"Round 3",
-    subtitle:"Desserts & drinks",
+    subtitle:"Curry, duck & desserts",
     dishes:[
-      "Chia Seed Coconut Pudding",
-      "Pineapple Curd Crumble Tart",
+      "Sawadee Crab Curry",
+      "Apple Wood Smoked Irish Duck",
+      "8 Treasure Coconut Pudding",
+      "Kaffir Citrus Tart",
       "Momo Yuzu Osmanthus Infusion"
     ]
   }
 ];
+
+/* Who cooked what. Deliberately NOT shown to tasters — a taster who knows
+   whose dish it is rates the colleague, not the food. Kept here so the
+   attribution is not lost, and so the dashboard can pair it up later.
+
+   Couscous Barley Taro Rice ........ Chef Nic
+   Stir-fried Thick Noodle .......... Chef Nic
+   Claypot Braised Egg Tofu ......... Chef Li Wu
+   Signature Oyster Braised Chicken . Chef Isaac
+   Osmanthus Ginger Scallion Fish ... Chef Gabriel
+   Four King Red Braised Seafood .... Chef Li Wu
+   Hot & Sour Cabbage Roll .......... Chef Rebecca
+   Sawadee Crab Curry ............... Chef Gabriel
+   Apple Wood Smoked Irish Duck ..... Chef Nic
+   8 Treasure Coconut Pudding ....... Chef Isaac
+   Kaffir Citrus Tart ............... Chef Nic
+   Momo Yuzu Osmanthus Infusion ..... (drink)
+*/
 
 /* ============================================================
    GOOGLE SHEETS (set up later)
@@ -851,6 +878,17 @@ const FIELD_LABELS={
 };
 const SLUG2NAME={};
 ACTIVE_ROUNDS.forEach(r=>r.dishes.forEach(d=>SLUG2NAME[slug(d)]=d));
+
+/* A dish's column key is derived from its NAME, so renaming a dish changes its
+   key. Answers saved under the OLD name are then orphans: they belong to no
+   dish on the current menu. Left alone they get posted anyway and the sheet —
+   which only ever ADDS columns — grows a second set headed by the raw old slug.
+   That is what "udon-stirfry — Tasted?" was. Drop them at both boundaries:
+   here on the way out, and on the way in when a draft is resumed. */
+function isOrphanKey(k){
+  const i = k.indexOf('__');
+  return i > -1 && !(k.slice(0, i) in SLUG2NAME);
+}
 function prettyKey(k){
   if(k==='id') return 'id';                 // kept as-is so the Apps Script upsert still matches
   if(k==='timestamp') return 'Submitted at';
@@ -862,7 +900,7 @@ function prettyKey(k){
   if(i>-1){ const sl=k.slice(0,i), f=k.slice(i+2); return (SLUG2NAME[sl]||sl)+' — '+(FIELD_LABELS[f]||f); }
   return k;
 }
-function labeled(obj){ const out={}; Object.keys(obj).forEach(k=>{ out[prettyKey(k)]=obj[k]; }); return out; }
+function labeled(obj){ const out={}; Object.keys(obj).forEach(k=>{ if(isOrphanKey(k)) return; out[prettyKey(k)]=obj[k]; }); return out; }
 function rawFlat(resp){ return Object.assign({id:resp.id, timestamp:resp.timestamp, name:resp.name}, resp.answers); }
 function buildFlat(){ return current ? labeled(rawFlat(current)) : {}; }
 function syncToSheet(){ if(current) submitToSheet(buildFlat()); }   // incremental upsert after each round
@@ -887,7 +925,7 @@ if(!ACTIVE_ROUNDS.length){
 function resumeOrStart(){
   const d=loadDraft();
   if(d && d.current){
-    current=d.current;
+    current=pruneOrphans(d.current);
     roundIndex=Math.min(d.roundIndex||0, ACTIVE_ROUNDS.length-1);
     maxStopIndex=d.maxStopIndex||0;
     currentStop=d.stop||'about';
@@ -898,6 +936,23 @@ function resumeOrStart(){
     return;
   }
   goName();
+}
+
+/* Strip answers for dishes that are no longer on the menu, so a taster who
+   started before a rename resumes on the current dish list instead of carrying
+   a ghost round nobody is serving. */
+function pruneOrphans(resp){
+  try{
+    if(resp && resp.answers){
+      /* Prune in place only. Do NOT call saveDraft() here: this runs from
+         resumeOrStart BEFORE the global `current` is assigned, so saveDraft
+         would see no current session and delete the draft outright. The next
+         real interaction saves it, and labeled() filters orphans on submit
+         regardless, so nothing stale can reach the sheet either way. */
+      Object.keys(resp.answers).forEach(k=>{ if(isOrphanKey(k)) delete resp.answers[k]; });
+    }
+  }catch(_){}
+  return resp;
 }
 </script>
 </body>
